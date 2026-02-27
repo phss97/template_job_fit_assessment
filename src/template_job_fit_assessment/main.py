@@ -1,11 +1,10 @@
 #!/usr/bin/env python
+import base64
 import json
 import os
 import sys
 import tempfile
 from typing import List
-
-import requests
 from crewai import Agent
 from crewai.flow import Flow, listen, start
 from crewai_tools import FirecrawlScrapeWebsiteTool, PDFSearchTool
@@ -37,7 +36,7 @@ class ResumeAnalysisData(BaseModel):
 class JobFitState(BaseModel):
     # User inputs — the only fields exposed to CrewAI AMP
     job_posting_url: str = ""
-    resume_url: str = ""
+    resume_base64: str = ""
 
     # Internal state — populated during flow execution, not exposed as inputs
     _resume_temp_path: str = PrivateAttr(default="")
@@ -101,17 +100,16 @@ class JobFitAssessmentFlow(Flow[JobFitState]):
         self.state._required_skills = job_data.required_skills
 
     @listen(extract_job_details)
-    def download_resume(self):
-        """Step 2: Download the resume PDF from a URL to a local temp file."""
-        response = requests.get(self.state.resume_url, timeout=30)
-        response.raise_for_status()
+    def prepare_resume(self):
+        """Step 2: Decode the base64 resume and write it to a local temp file."""
+        pdf_bytes = base64.b64decode(self.state.resume_base64)
 
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        tmp.write(response.content)
+        tmp.write(pdf_bytes)
         tmp.close()
         self.state._resume_temp_path = tmp.name
 
-    @listen(download_resume)
+    @listen(prepare_resume)
     def analyze_resume(self):
         """Step 2: Read the resume PDF and score the candidate against job requirements."""
         agent = Agent(
@@ -229,7 +227,7 @@ def kickoff():
     flow.kickoff(
         inputs={
             "job_posting_url": "https://openai.com/careers/solutions-engineer-pre-sales-san-francisco/",
-            "resume_url": "https://example.com/resume.pdf",
+            "resume_base64": "<base64-encoded-pdf>",
         }
     )
 

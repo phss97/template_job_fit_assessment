@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 import json
+import os
 import sys
+import tempfile
 from typing import List
 
+import requests
 from crewai import Agent
 from crewai.flow import Flow, listen, start
 from crewai_tools import FirecrawlScrapeWebsiteTool, PDFSearchTool
@@ -34,9 +37,10 @@ class ResumeAnalysisData(BaseModel):
 class JobFitState(BaseModel):
     # User inputs — the only fields exposed to CrewAI AMP
     job_posting_url: str = ""
-    resume_path: str = ""
+    resume_url: str = ""
 
     # Internal state — populated during flow execution, not exposed as inputs
+    _resume_temp_path: str = PrivateAttr(default="")
     _job_title: str = PrivateAttr(default="")
     _company_name: str = PrivateAttr(default="")
     _required_skills: List[str] = PrivateAttr(default_factory=list)
@@ -97,6 +101,17 @@ class JobFitAssessmentFlow(Flow[JobFitState]):
         self.state._required_skills = job_data.required_skills
 
     @listen(extract_job_details)
+    def download_resume(self):
+        """Step 2: Download the resume PDF from a URL to a local temp file."""
+        response = requests.get(self.state.resume_url, timeout=30)
+        response.raise_for_status()
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp.write(response.content)
+        tmp.close()
+        self.state._resume_temp_path = tmp.name
+
+    @listen(download_resume)
     def analyze_resume(self):
         """Step 2: Read the resume PDF and score the candidate against job requirements."""
         agent = Agent(
@@ -119,7 +134,7 @@ class JobFitAssessmentFlow(Flow[JobFitState]):
         skills_list = "\n".join(f"- {skill}" for skill in self.state._required_skills)
 
         result = agent.kickoff(
-            f"Read the candidate's resume at: {self.state.resume_path}\n\n"
+            f"Read the candidate's resume at: {self.state._resume_temp_path}\n\n"
             f"You are evaluating them for the role of {self.state._job_title} at {self.state._company_name}.\n\n"
             f"Required skills for this role:\n{skills_list}\n\n"
             "Perform the following analysis:\n"
@@ -200,6 +215,9 @@ class JobFitAssessmentFlow(Flow[JobFitState]):
             f.write(self.state._report)
         print(f"Report saved to {filename}")
 
+        if self.state._resume_temp_path:
+            os.unlink(self.state._resume_temp_path)
+
 
 # ---------------------------------------------------------------------------
 # Entry points (keep signatures matching pyproject.toml scripts)
@@ -211,7 +229,7 @@ def kickoff():
     flow.kickoff(
         inputs={
             "job_posting_url": "https://openai.com/careers/solutions-engineer-pre-sales-san-francisco/",
-            "resume_path": "resume.pdf",
+            "resume_url": "https://example.com/resume.pdf",
         }
     )
 

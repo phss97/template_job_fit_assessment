@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 from typing import List
+
 from crewai import Agent
 from crewai.flow import Flow, listen, start
 from crewai_tools import FirecrawlScrapeWebsiteTool, PDFSearchTool
@@ -226,8 +227,8 @@ def kickoff():
     flow = JobFitAssessmentFlow()
     flow.kickoff(
         inputs={
-            "job_posting_url": "https://openai.com/careers/solutions-engineer-pre-sales-san-francisco/",
-            "resume_base64": "<base64-encoded-pdf>",
+            "job_posting_url": "",
+            "resume_base64": "",
         }
     )
 
